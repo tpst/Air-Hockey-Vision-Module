@@ -9,18 +9,18 @@ Mat puckTracker::closeImage(Mat& src, int size, int iterations, int offset)
 	return dst;
 }
 
-void puckTracker::findROI(Mat& src)
+Rect puckTracker::findROI(Mat& src)
 {
 	//find green,
 	Mat hsv, dst;
 	bool debugging = true;
 
-	int HMIN = 65; //64
-	int HMAX = 199; //104
-	int SMIN = 51; //80
-	int SMAX = 220; //230
-	int VMIN = 81; //51
-	int VMAX = 247; //219
+	int HMIN = 57; //65
+	int HMAX = 84; //199
+	int SMIN = 60; //51
+	int SMAX = 255; //220
+	int VMIN = 0; //81
+	int VMAX = 235; //247
 
 	//Create trackbars to adjust HSV colouring
 	namedWindow("Trackbars", CV_WINDOW_NORMAL);
@@ -43,7 +43,7 @@ void puckTracker::findROI(Mat& src)
 		erosion(dst, 3, 2, 3);
 		dilation(dst, 3, 2, 3);
 
-		//imshow("ROI", dst);
+		imshow("ROI", dst);
 		//if user press 'space' key
 		if (waitKey(10) == 32)
 		{
@@ -66,7 +66,7 @@ void puckTracker::findROI(Mat& src)
 
 	// Compute minimal bounding box
 	//RotatedRect box = minAreaRect(contoursAll);
-	roi = boundingRect(contoursAll);
+	Rect roi = boundingRect(contoursAll);
 	/*Point2f rect_points[4];
 	box.points(rect_points);
 
@@ -77,7 +77,8 @@ void puckTracker::findROI(Mat& src)
 	//rectangle(frame, roi, Scalar(0, 255, 0), 2, 8);
 	//imshow("frame", frame);
 	//waitKey(0);
-	destroyWindow("Trackbars");
+	destroyAllWindows();
+	return roi;
 }
 
 void erosion(cv::Mat& im, int iterations, int elem, int size)

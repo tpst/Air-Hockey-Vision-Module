@@ -74,8 +74,20 @@ double avgfps()
 //   sets default variables for thresholding functions, some logic
 puckTracker::puckTracker(void)
 {
-	video = true;
+	video = false; // loading video
 	debugmode = true;
+	calibrated = true; // calibration is done already. 
+
+	if(calibrated == true) 
+	{
+		cameraMatrix = (Mat_<float>(3, 3) << 413.1620488515831, 0, 325.5774757503481,
+											 0, 415.657300643115, 249.0529823718357,
+											 0, 0, 1);
+		distCoeffs = (Mat_<float>(5, 1) << -0.4623944646292301, 0.3170825823125478, 0.004937692934118649, 
+											-0.003810017964592343, -0.1139398551683426);
+	} else {
+		// do calibration
+	}
 
 	thresh = 32;
 	maxval = 255;
@@ -93,21 +105,40 @@ puckTracker::puckTracker(void)
 	} else {
 		// take snapshot from camera
 		// open camera item
-	}
-	if (!cap.isOpened()){
-		cout << "Error opening video feed" << endl;
-		exit(-1);
-	}
+		cap.open(1);
 
+		if (!cap.isOpened()){
+			cout << "Error opening video feed" << endl;
+			exit(-1);
+		}
+
+		// the camera is dark when it first opens. capture a few frames to let the light settle
+		int count = 0;
+		Mat temp;
+		do {
+			temp = getFrame(cap);
+			count++;
+		} while(count != 50);
+
+		undistort(temp, ref, cameraMatrix, distCoeffs);
+		tform = findTransformMatrix(ref);
+		warpPerspective(ref, ref, tform, ref.size());
+
+		roi = findROI(ref); // find the region of interest IE the green part of table.
+
+		cvtColor(ref, ref, CV_BGR2GRAY); // convert reference to gray for absdiff, because frame will be gray too
+	}
 }
 
 // Process loop. 
 void puckTracker::process(void)
 {
-	double dur = 0, last_dur = 0; // time taken for processing loop. used to find puck velocity
+	
+	Puck puck; // create instance of puck variable
 
 	namedWindow("frame", CV_WINDOW_NORMAL); // input frame
 
+	//configure thresholding
 	if (debugmode == true)
 	{
 		//namedWindow("frame", CV_WINDOW_NORMAL); // input frame
@@ -118,26 +149,9 @@ void puckTracker::process(void)
 		createTrackbar("offset", "diff", &offset, 10);
 	}
 
-	//Correct perspective
-	Mat tform = (Mat_<float>(3, 3) << 0.7960837956561635, 0.201906957512314, 28.5334730127201,
-		-0.02787305336493078, 1.145227705341308, 16.96726799282316,
-		-6.150762080478036*pow(10, -5), 0.0006784661447038081, 1);
-	
-	
+	puck.last_position = Point2d(-1,-1); // initialise temporary position point of the puck. 
 
-	// find the region of interest ie the table
-	frame = getFrame(cap);
-
-	//Mat tform = findTransformMatrix(frame);
-
-	warpPerspective(ref, ref, tform, ref.size());
-
-	warpPerspective(frame, frame, tform, frame.size());
-
-	findROI(frame);
-
-	last_pos = Point(0,0); // initialise temporary position point of the puck. 
-
+	//-- Main Process Loop
 	while (waitKey(1) != 32)
 	{	
 		// --timer stuff
@@ -145,53 +159,71 @@ void puckTracker::process(void)
 
 		//////////////////
 		
-		frame = getFrame(cap); // capture frame from input source
+		Mat temp = getFrame(cap); // capture frame from input source
+		
+		frame_colour = temp.clone();
 
-		if (debugmode) warpPerspective(frame, frame, tform, frame.size());
+		cvtColor(temp, temp, CV_BGR2GRAY);
+		
+		undistort(temp, frame, cameraMatrix, distCoeffs);
+		
+		warpPerspective(frame, frame, tform, frame.size());
 
 		Mat table = frame(roi); // this will be the cropped image that gets processed
+		
+		scene = Mat::zeros(table.size(), CV_8UC3);
 
 		double ratio = table.cols / 1.1f; // 110 cm is the table width. ratio is the ratio of pixel to cm.
 
-		if (findPuck(table, ref(roi))) // finds the puck in the frame, fills variables in pucktracker class
+		if (findPuck(table, ref(roi), puck)) // finds the puck in the frame, fills variables in pucktracker class
 		{
-			if (last_pos == Point(0, 0)) // if this is the first recent instance of the puck being found
+			circle(scene, puck.position, 12, Scalar(0, 255, 0), -2, 8);
+			if (puck.last_position == Point2d(-1, -1)) // if this is the first recent instance of the puck being found
 			{
-				dur = CLOCK(); // start the clock
-				last_pos = pos; // store the last position
-			}
-			else {
-				last_dur = dur; 
-				dur = CLOCK(); // get current clock time, then find velocity 
-				getVelocity(last_pos, pos, ratio, dur, last_dur);
-				predict(table, last_pos, pos);
-				last_pos = pos;
-			}
-			all_pos.push_back(pos); // store all known positions of the puck
-		}
-		else {
-			last_pos = Point(0, 0);
-		}
+				puck.duration = CLOCK();
+				puck.last_position = puck.position;
+			} else {
+				puck.last_duration = puck.duration;
+				puck.duration = CLOCK();
 
+				puck.flag = getDirection(puck);
+				if(puck.flag != 1) all_pred.clear(); 
+
+				puck.velocity = getVelocity(puck, ratio);
+				if(puck.velocity > 0.25) predict(table, puck.last_position, puck.position, puck.velocity);
+				puck.last_position = puck.position;
+			}
+			all_pos.push_back(puck.position); // store all known positions of the puck
+		} else {
+			puck.last_position = Point(-1, -1);
+		}
 		imshow("frame", table);
-
+		//imshow("scene", scene);
 	}
 
 }
 
-void puckTracker::getVelocity(Point last_pos, Point pos, double ratio, double dur, double last_dur)
+bool puckTracker::getDirection(Puck& puck) 
 {
-	double distance = sqrt((pos.x - last_pos.x)*(pos.x - last_pos.x) + (pos.y - last_pos.y)*(pos.y - last_pos.y));
-	double time = dur - last_dur;
+	if(puck.position.x > puck.last_position.x) return 1;
+	
+	return 0;
+}
+
+double puckTracker::getVelocity(Puck& puck, double ratio)
+{
+	double distance = sqrt((puck.position.x - puck.last_position.x)*(puck.position.x - puck.last_position.x) + (puck.position.y - puck.last_position.y)*(puck.position.y - puck.last_position.y));
+	double time = puck.duration - puck.last_duration;
 	distance = distance / ratio; // convert to cm
 	time = time*0.001f; // convert to s
-	double velocity = distance / time; 
-	cout << "v : " << velocity << " m/s" << endl;
+	//puck.velocity = distance / time;
+	cout << "v : " << puck.velocity << " m/s" << endl;
+	return distance/time;
 }
 
 //-- finds the puck in each frame
 //-- also finds the opponent, if they're present. 
-int puckTracker::findPuck(Mat& frame, Mat& img)
+int puckTracker::findPuck(Mat& frame, Mat& img, Puck& puck)
 {
 	vector<vector<Point>> contours;
 
@@ -212,14 +244,14 @@ int puckTracker::findPuck(Mat& frame, Mat& img)
 
 	absdiff(frame, img, diff);
 	
-	cvtColor(diff, diff, CV_BGR2GRAY);
+	//cvtColor(diff, diff, CV_BGR2GRAY);
 
 	threshold(diff, dst, thresh, 255, THRESH_BINARY);
 	
 	// now need to sort 'blobs'
 	dst = closeImage(dst, size, iterations, offset);
-	if(debugmode) imshow("diff", dst);
 
+	if(debugmode) imshow("diff", dst);
 
 	findContours(dst.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
 	
@@ -244,7 +276,7 @@ int puckTracker::findPuck(Mat& frame, Mat& img)
 		vector<Point2f> mc(contours.size());
 		for (int i = 0; i < contours.size(); i++)
 		{
-			mc[i] = Point2f(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
+			mc[i] = Point2d(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
 		}
 		
 		// draw result
@@ -271,8 +303,8 @@ int puckTracker::findPuck(Mat& frame, Mat& img)
 			// -- lowest vertical object will be the puck
 			for (int i = 0; i < contours.size(); i++)
 			{
-				double d = mc[i].y; // vertical distance 
-				double a = contours[i].size(); // area
+				int d = mc[i].x; // horizontal distance 
+				int a = contours[i].size(); // area
 				if (d > distance)
 				{
 					distance = d;
@@ -304,24 +336,23 @@ int puckTracker::findPuck(Mat& frame, Mat& img)
 		if(opponent_found) 
 		{
 			trackOpponent(contours[opponent_index], mc[opponent_index]);
-			circle(frame, mc[opponent_index], 12, Scalar(0, 255, 0), -3, 8);
-
+			circle(frame, mc[opponent_index], 8, Scalar(200, 255, 150), -3, 8);
 		}
 
 		if(puck_found) 
 		{
-			pos = mc[puck_index]; // set global puck position variable
-			circle(frame, mc[puck_index], 12, Scalar(255, 0, 0), -3, 8);
+			puck.position = mc[puck_index]; // set global puck position variable
+			circle(frame, mc[puck_index], 8, Scalar(255, 0, 0), -3, 8);
 		}
 	}
 	return puck_found;
 }
 
-bool puckTracker::validatePuck(int size, Point2f pos) 
+bool puckTracker::validatePuck(int size, Point2d pos) 
 {
 	bool valid = false;
 
-	if (pos.y > frame.rows*0.125f) // check vertical position of puck - must be above first .125 of table.
+	if (pos.x > frame.cols*0.125f) // check horizontal position of puck - must be above first .125 of table.
 	{
 		if(size < 150) 
 		{
@@ -331,7 +362,7 @@ bool puckTracker::validatePuck(int size, Point2f pos)
 	return valid;
 }
 
-void puckTracker::trackOpponent(vector<Point> contours, Point2f position)
+void puckTracker::trackOpponent(vector<Point> contours, Point2d position)
 {
 	// perhaps a histogram of strike position (peak vertical point in contours?)
 }
@@ -350,70 +381,94 @@ Mat puckTracker::getFrame(VideoCapture& cap)
 	return frame;
 }
 	
-void predict(Mat& src, Point2f a, Point2f b)
+void puckTracker::predict(Mat& src, Point2d last, Point2d current, double velocity) 
 {
-	
-	double slope = (b.y-a.y)/(b.x-a.x);
+	double predict_x, predict_y; // x and y values of the predicted puck location
 
-	double predict_x, predict_y;
-	double predict_x2, predict_y2;
-	double bounce_x, bounce_y;
-	double bounce2_x, bounce2_y;
+	int bounce_count = 0; // number of bounces 
+	int bounce_max = 3; // maximum number of bounces calculated
+	bool done = false;
 
+	/* equation of a line: y = mx + b
+	 *find the slope mof the pucks trajectory & y intercept b */
+	double slope = (current.y - last.y)/(current.x - last.x);
+	double b = (current.y - slope * current.x);
+
+	// find its direction
+	if(current.x > last.x) 
+	{
+		// puck is travelling TOWARDS the robot goal - want to predict its location at goal
+		predict_x = src.cols;
+	} else if(current.x < last.x)
+	{
+		// away from robot - predict location at opponent goal
+		predict_x = 0;
+	} else {
+		return; //stationary or travelling vertical. Do nothing
+	}
+
+	// calculate predict_y 
+	predict_y  = (slope*predict_x + b);
+		
 	// x = (y-y1)/m + x1
-	if(b.y < a.y)  //If puck is travelling upwards (w.r.t camera)
-	{
-		predict_y = 0;
-	} else {  // else its going down
-		predict_y = src.rows;
-	}
+	Point2d last_point;
+
+	do {
+		double bounce_x, bounce_y; // x/y of bounce impact position
+
+		if(last_point == Point2d(0,0)) last_point = current;
+
+		if(predict_y < 0) 
+		{
+			bounce_y = 1;
+		} else if (predict_y > src.rows) 
+		{
+			bounce_y = src.rows;
+		} else {
+			done = true;
+			// good prediction
+		}
+		if(!done) 
+		{
+			bounce_count++;
+			// find x value of bounce
+
+			bounce_x = (bounce_y - last_point.y)/slope + last_point.x;
+
+			// display
+			line(src, last_point, Point2d(bounce_x, bounce_y), Scalar(255, 255, 255), 2, 8, 0);
+			// puck travelling opposite direction now
+
+			slope = -slope;
+
+			//update prediction
+			predict_y = (predict_x - bounce_x)*slope + bounce_y;
+
+			// update the last point
+			last_point = Point2d(bounce_x, bounce_y);
+		} else {
+			// weve made a good prediction that ends at one goal end. 
+			line(src, last_point, Point2d(predict_x, predict_y), Scalar(255, 0, 0), 2, 8);
+
+			if(predict_x != 0) 
+			{
+				all_pred.push_back(Point2d(predict_x, predict_y));
+				if(all_pred.size() > 10) all_pred.erase(all_pred.begin());
+				for(int i = 0; i < all_pred.size(); i++) 
+				{
+					circle(src, all_pred[i], 12, Scalar(255, 255, 255), -1, 8);
+				}
+			}
+
+			circle(src, Point2d(predict_x, predict_y), 12, Scalar(255, 255, 255), -1, 8);
+
+		}
+
+	} while ((bounce_count != bounce_max) && (done != true)); //predict until we've bounced 3 times or found the end. 
+
 	
-	predict_x = (predict_y-b.y)/slope + b.x;
-
-	/*cout << "Previous position: " << Point(a.x, a.y) << endl;
-	cout << "current position: "  << Point(b.x, b.y) << endl;
-	cout << "Prediction at y = 0: " << Point(predict_x, predict_y) << endl;*/
-
-	if((predict_x<0)||(predict_x>(src.cols+1)))
-	{
-		//Which side?
-		if(predict_x<0)
-		{
-			//Left side
-			bounce_x = 1;
-			bounce_y = (bounce_x - b.x)*slope + b.y;
-
-			//2nd bounce
-			bounce2_x = src.cols;
-			bounce2_y = (bounce2_x - bounce_x)*-slope + bounce_y;
-		} 
-		else 
-		{
-			bounce_x = src.cols;
-			bounce_y = (bounce_x - b.x)*slope + b.y;
-		
-			//2nd bounce
-			bounce2_x = 1;
-			bounce2_y = (bounce2_x - bounce_x)*-slope + bounce_y;
-		}
-		//circle(tempScene, Point(bounce_x, bounce_y), 20, Scalar(0,0,255), 2, 8, 0);
-		line(src, Point(bounce_x, bounce_y), Point(bounce2_x, bounce2_y), Scalar(0,255,0), 2, 8, 0);
-		
-		//Make new prediction from bounce
-		predict_y2 = 0;
-		predict_x2 = (predict_y2-bounce2_y)/-slope + bounce2_x;
-
-		if(predict_y==0) 
-		{
-			circle(src, Point(predict_x2, predict_y2), 20, Scalar(0,0,255), 2, 8, 0);
-		}
-	}
-
-	line(src, b, Point(predict_x, predict_y), Scalar(0,255,0), 2, 8, 0);
-	circle(src, Point(predict_x, predict_y), 20, Scalar(0,0,255), 2, 8, 0);
-
-
 }
+
 
 // below is used for finding the transformation matrix for a specific camera setup. 
 Mat findTransformMatrix(cv::Mat& src) 
@@ -479,7 +534,6 @@ void CallBackFunc(int event, int x, int y, int flags, void* ptr)
 		//cout << "Point is (" << p[i].x << ", " << p[i].y << ")" << endl;
 	//	cout << "Point is (" << p[i][0] << ", " << p[i][1] << ")" << endl;
 
-			cout << "i is: " << i << endl;
 
 		//calcDestPoints(x, y, i, dest_points);
 		if (++i % 4 == 0) 
@@ -493,8 +547,9 @@ void CallBackFunc(int event, int x, int y, int flags, void* ptr)
 
 vector<Point2f> calcDestPoints(vector<Point2f> source_points, vector<Point2f> dest_points) 
 {
-	
-	int scale = 130; 
+
+	int x_scale = 500; 
+	int y_scale = 275;
 	for (int i = 0; i < 4; i++) 
 	{
 		if ( i == 0 ) 
@@ -506,19 +561,19 @@ vector<Point2f> calcDestPoints(vector<Point2f> source_points, vector<Point2f> de
 		}
 		else if ( i == 1 ) 
 		{
-			dest_points.push_back(Point2f(source_points[0].x + scale, source_points[0].y));
+			dest_points.push_back(Point2f(source_points[0].x + x_scale, source_points[0].y));
 
 			cout << "The destination co-ord for point" << i + 1 << " is (" << dest_points[i].x << ", " << dest_points[i].y << ")" << endl;
 		}
 		else if ( i == 2 ) 
 		{
-			dest_points.push_back(Point2f(source_points[0].x + scale, source_points[0].y-scale));
+			dest_points.push_back(Point2f(source_points[0].x + x_scale, source_points[0].y-y_scale));
 
 			cout << "The destination co-ord for point" << i + 1 << " is (" << dest_points[i].x << ", " << dest_points[i].y << ")" << endl;
 		}
 		else if ( i == 3)
 		{
-			dest_points.push_back(Point2f(source_points[0].x, source_points[0].y-scale));
+			dest_points.push_back(Point2f(source_points[0].x, source_points[0].y-y_scale));
 
 			//dest_points[i].x = source_points[0].x;
 			//dest_points[i].y = source_points[0].y - scale;

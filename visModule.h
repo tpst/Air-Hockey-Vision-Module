@@ -1,11 +1,19 @@
 #include <opencv/cv.h>
 #include <opencv/highgui.h>
 
+#include <ctime>
+#include <iostream>
+#include <string>
+#include <boost/asio.hpp>
+#include <boost/array.hpp>
 
+#define VISION_PORT 5003
 
 using namespace cv;
 using namespace std;
+using boost::asio::ip::tcp;
 
+ 
 
 // The complete vision module class. Responsible for tracking the hockey puck (and player) and provides
 // a detailed state of the puck and prediction of its location. 
@@ -31,6 +39,8 @@ public:
 	bool debugmode;
 	//-- do we need to calibrate the camera?
 	bool calibrated;
+	//-- YES if communicating with robot, NO if vision is run standalone
+	bool talking; 
 
 	//-- output from camera calibration. 
 	Mat cameraMatrix;
@@ -44,6 +54,9 @@ public:
 		double duration; // time between puck @ last_position and puck @ current position
 		double last_duration;	
 		bool flag; // 1 if it is moving towards robot
+		double x_err;
+		double y_err;
+		double v_err;
 
 	};
 
@@ -53,11 +66,14 @@ public:
 		double angle; // incoming angle
 		double eta;
 		double velocity;
-		double d_err;
-		double a_err;
-		double t_err;
-		double v_err;
+		double d_err; // distance error
+		double a_err; // angle error
+		double t_err; // time error
+		double v_err; // velocity error
 	};
+
+	double ratio; // ratio of pixels to m
+	float mmratio;
 
 	vector<Point2d> all_pos; 
 	vector<Point2d> all_pred; // all predicted locations
@@ -82,7 +98,7 @@ public:
 	int findPuck(Mat& src, Mat& img, Puck& puck);
 
 	// validates the size and vertical position of the assumed puck object
-	bool validatePuck(int size, Point2d pos);
+	bool validatePuck(int size, Point2d pos, Mat& frame);
 
 	// does nothing yet
 	void trackOpponent(vector<Point> contours, Point2d position);
@@ -97,9 +113,13 @@ public:
 
 	double getVelocity(Puck& puck, double ratio);
 
-	void predict(Mat& src, Point2d last, Point2d current, double velocity);
+	bool predict(Mat& src, Point2d last, Point2d current, double velocity, string& result);
 	
 	bool getDirection(Puck& puck); 
+
+	string constructMessage(Puck puck);
+	string constructMessage(Prediction p);
+
 
 };
 

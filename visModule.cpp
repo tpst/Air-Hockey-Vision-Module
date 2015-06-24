@@ -70,13 +70,13 @@ double avgfps()
 
 
 //-- constructor for pucktracker class
-//   sets default variables for thresholding functions, some logic
+//   sets default variables for thresholding functions, some logic, camera calibration
 puckTracker::puckTracker(void)
 {
-	video = false; // loading video
-	debugmode = true;
+	video = true; // loading video
+	debugmode = false;
 	calibrated = true; // calibration is done already. 
-	talking = true; // not communicating with robot. 
+	talking = false; // not communicating with robot. 
 
 	if(calibrated == true) 
 	{
@@ -91,18 +91,30 @@ puckTracker::puckTracker(void)
 		// do calibration
 	}
 
-	thresh = 21;
+	/********* SEGMENTATION FOR FINDPUCK *******************/
+	element = getStructuringElement( MORPH_RECT, Size( 5, 5 ), Point( -1, -1 ) );
+
+	thresh = 45;
 	maxval = 255;
 	size = 3;
 	iterations = 5;
 	offset = 6;
+	/*******************************************************/
 
 	//-- initialise video or camera
 	if (video)
 	{
-		ref = imread("puck_snap.png");
+		Mat temp = imread("Resources/ref_image.png");
 
-		cap.open("puck_test2.avi");
+		cap.open("Resources/captured1.avi");
+
+		undistort(temp, ref, cameraMatrix, distCoeffs);
+
+		tform = findTransformationMatrix(ref, roi);
+
+		warpPerspective(ref, ref, tform, ref.size());
+
+		cvtColor(ref, ref, CV_BGR2GRAY);
 
 	} 
 	else 
@@ -124,11 +136,13 @@ puckTracker::puckTracker(void)
 			count++;
 		} while(count != 50);
 
+		// correct camera distortion
 		undistort(temp, ref, cameraMatrix, distCoeffs);
-		tform = findTransformMatrix(ref);
-		warpPerspective(ref, ref, tform, ref.size());
+		
+		tform = findTransformationMatrix(ref, roi);
 
-		roi = findROI(ref); // find the region of interest IE the green part of table.
+		// square up the table in image
+		warpPerspective(ref, ref, tform, ref.size());
 
 		cvtColor(ref, ref, CV_BGR2GRAY); // convert reference to gray for absdiff, because frame will be gray too
 	}
@@ -151,23 +165,22 @@ void puckTracker::process(void)
 	    tcp::socket socket(io_service);
 		if(talking == true)
 		{
-			cout << "waiting for connection.." << endl;
+			cout << "Waiting for connection.." << endl;
 			acceptor.accept(socket);
 			cout << "Robot has connected. " << endl;
+			string connected_message = "1"; // send something so robot controller knows we have connected.
+			boost::system::error_code ignored_error;
+			boost::asio::write(socket, boost::asio::buffer(connected_message), ignored_error);
 		}
 
 	/*********************************************************************/
-	
 
 	//configure thresholding
 	if (debugmode == true)
 	{
 		//namedWindow("frame", CV_WINDOW_NORMAL); // input frame
-		namedWindow("diff", CV_WINDOW_NORMAL); // segmentation output
-		createTrackbar("thresh", "diff", &thresh, 255);
-		createTrackbar("size", "diff", &size, 9);
-		createTrackbar("iterations", "diff", &iterations, 10);
-		createTrackbar("offset", "diff", &offset, 10);
+		namedWindow("thresholding", CV_WINDOW_NORMAL); // segmentation output
+		createTrackbar("thresh", "thresholding", &thresh, 255);
 	}
 
 	puck.last_position = Point2d(-1,-1); // initialise temporary position point of the puck. 
@@ -192,8 +205,6 @@ void puckTracker::process(void)
 
 		Mat table = frame(roi); // this will be the cropped image that gets processed
 		
-		scene = Mat::zeros(table.size(), CV_8UC3);
-
 		ratio = table.rows / 1.1f; // 110 cm is the table width. ratio is the ratio of pixel to m.
 		mmratio = table.rows / 1100.0f;
 
@@ -208,8 +219,6 @@ void puckTracker::process(void)
 				boost::system::error_code ignored_error;
 				boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
 			}
-
-			circle(scene, puck.position, 12, Scalar(0, 255, 0), -2, 8);
 
 			if (puck.last_position == Point2d(-1, -1)) // if this is the first recent instance of the puck being found
 			{
@@ -245,7 +254,6 @@ void puckTracker::process(void)
 		}
 
 		imshow("frame", table);
-		//imshow("scene", scene);
 	}
 
 }
@@ -267,154 +275,17 @@ double puckTracker::getVelocity(Puck& puck, double ratio)
 	return distance/time;
 }
 
-//-- finds the puck in each frame
-//-- also finds the opponent, if they're present. 
-int puckTracker::findPuck(Mat& frame, Mat& img, Puck& puck)
-{
-	vector<vector<Point>> contours;
-
-	// logic
-	bool puck_found = false;
-	bool opponent_found = false;
-
-	Mat diff;
-	Mat dst;
-
-	//Artificial display of environment
-	Mat scene = Mat::zeros(frame.size(), CV_8UC3);
-	
-	int distance = 0; // minimum distance from user goal before an item can be considered as the puck
-	int puck_index = 0;
-	int opponent_index = 0;
-	double area = 0;
-
-	absdiff(frame, img, diff);
-	
-	imshow("absdiff", diff);
-	//cvtColor(diff, diff, CV_BGR2GRAY);
-
-	threshold(diff, dst, thresh, 255, THRESH_BINARY);
-	
-	// now need to sort 'blobs'
-	dst = closeImage(dst, size, iterations, offset);
-
-	if(debugmode) imshow("diff", dst);
-
-	findContours(dst.clone(), contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-	
-	// object(s) have been found. Get information about each contour
-	if (contours.size() > 0)
-	{
-		/// Find the convex hull object for each contour
-		vector<vector<Point> >hull(contours.size());
-		for (int i = 0; i < contours.size(); i++)
-		{
-			convexHull(Mat(contours[i]), hull[i], false);
-		}
-
-		// moments
-		vector<Moments> mu(contours.size());
-		for (int i = 0; i < contours.size(); i++)
-		{
-			mu[i] = moments(hull[i], false);
-		}
-
-		///  Get the mass centers:
-		vector<Point2f> mc(contours.size());
-		for (int i = 0; i < contours.size(); i++)
-		{
-			mc[i] = Point2d(mu[i].m10 / mu[i].m00, mu[i].m01 / mu[i].m00);
-		}
-		
-		// draw result
-		for (int i = 0; i < contours.size(); i++)
-		{
-			drawContours(dst, hull, i, Scalar(0, 0, 255), 2, 8);
-			circle(dst, mc[i], 3, Scalar(0, 255, 0), -1, 8); // draws centre of mass 
-		}
-
-		// if there is more than one, need to distinguish the puck from opponent
-		if(contours.size() == 1) 
-		{
-			if(validatePuck(contours[0].size(), mc[0], frame)) 
-			{
-				puck_found = true;
-			} else {
-				opponent_found = true;
-				opponent_index = 0;	
-			}
-		} else {
-			for(int i = 0; i < contours.size(); i++)
-			{
-				if(validatePuck(contours[i].size(), mc[i], frame)) 
-				{
-						puck_index = i;
-						puck_found = true;
-				}
-			}
-		}
-	
-		if(opponent_found) 
-		{
-			trackOpponent(contours[opponent_index], mc[opponent_index]);
-			circle(frame, mc[opponent_index], 8, Scalar(0, 0, 0), -3, 8);
-		}
-
-		if(puck_found) 
-		{
-			puck.position = mc[puck_index]; // set global puck position variable
-			circle(frame, mc[puck_index], 8, Scalar(255, 255, 255), -3, 8);
-		}
-	}
-	return puck_found;
-}
-
-	//opponent_found = true;
-	//		// more than one object exists
-	//		// now we need to sort each contour
-	//		// -- lowest vertical object will be the puck
-	//		for (int i = 0; i < contours.size(); i++)
-	//		{
-	//			int d = mc[i].x; // horizontal distance 
-	//			int a = contours[i].size(); // area
-	//			if (d > distance)
-	//			{
-	//				distance = d;
-	//				if(validatePuck(a, mc[i], frame)) puck_index = i; // make sure it is correct size. 
-	//				//puck_index = i;
-	//			}
-	//			// the opponent will *most of the time* be the largest object
-	//			if (a > area)
-	//			{
-	//				area = a;
-	//				opponent_index = i;
-	//			}
-	//		}
-	//		// if the puck is the largest index, adjust index of opponent. could also choose 2nd largest index here to be more accurate
-	//		if(opponent_index == puck_index) 
-	//		{
-	//			opponent_index = 0;
-	//			while(opponent_index == puck_index) 
-	//			{
-	//				opponent_index++;
-	//			}
-	//		}
-	//		if(validatePuck(contours[puck_index].size(), mc[puck_index], frame)) 
-	//		{
-	//			puck_found = true;
-	//		}
-	//		
-	//	}
-
-bool puckTracker::validatePuck(int size, Point2d pos, Mat& frame) 
+bool puckTracker::validatePuck(double contourArea, Point2d pos, Mat& frame) 
 {
 	bool valid = false;
 
-	if ((pos.x > frame.cols*0.15f) && (pos.x < frame.cols*0.85f)) // check horizontal position of puck - must be above first .125 of table.
+	if (pos.x > frame.cols*0.05f) // check horizontal position of puck - must be above first .125 of table.
 	{
-		if(size < 150) 
+		if((contourArea >= 220) && (contourArea <= 500)) 
 		{
 			valid = true;
+		} else {
+			//cout << size << endl;
 		}
 	}
 	return valid;
@@ -448,7 +319,7 @@ bool puckTracker::predict(Mat& src, Point2d last, Point2d current, double veloci
 	bool done = false;
 
 	/* equation of a line: y = mx + b
-	 *find the slope mof the pucks trajectory & y intercept b */
+	 *find the slope of the pucks trajectory & y intercept b */
 	double slope = (current.y - last.y)/(current.x - last.x);
 	double b = (current.y - slope * current.x);
 
@@ -529,7 +400,7 @@ bool puckTracker::predict(Mat& src, Point2d last, Point2d current, double veloci
 		Prediction p;
 		// fill in prediction class to be sent to robot. 
 		p.distance = predict_y - (src.rows/2);
-		p.angle = 0; // needs to be calculated in radian 
+		p.angle = atan(slope); // incoming angle in radians 
 		p.eta = 0;
 		p.velocity = velocity;
 		p.d_err = 0;
@@ -575,6 +446,12 @@ Mat findTransformMatrix(cv::Mat& src)
 		 inputQuad[i] = source_points[i];
 		 //cout << "inputQuad: " << inputQuad[i] << endl;
 	 }
+	 
+	circle(src, source_points[0], 5, Scalar(255,0,0), -1, 8); // br
+	circle(src, source_points[1], 5, Scalar(0,255,0), -1, 8); // bl
+	circle(src, source_points[2], 5, Scalar(0,0,255), -1, 8); //tl
+	imshow("src", src);
+	waitKey(0);
 	 dest_points = calcDestPoints(source_points, dest_points);
 	 
 	 for(int j = 0; j < 4; j++)
@@ -617,7 +494,6 @@ void CallBackFunc(int event, int x, int y, int flags, void* ptr)
 
 vector<Point2f> calcDestPoints(vector<Point2f> source_points, vector<Point2f> dest_points) 
 {
-
 	int x_scale = 500; 
 	int y_scale = 275;
 	for (int i = 0; i < 4; i++) 

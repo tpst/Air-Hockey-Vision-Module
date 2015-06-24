@@ -13,8 +13,6 @@ using namespace cv;
 using namespace std;
 using boost::asio::ip::tcp;
 
- 
-
 // The complete vision module class. Responsible for tracking the hockey puck (and player) and provides
 // a detailed state of the puck and prediction of its location. 
 class puckTracker {
@@ -25,8 +23,6 @@ public:
 	//-- current frame - this gets processed
 	Mat frame;
 	Mat frame_colour;
-	//-- artificial scene
-	Mat scene;
 
 	VideoCapture cap;
 
@@ -78,18 +74,16 @@ public:
 	vector<Point2d> all_pos; 
 	vector<Point2d> all_pred; // all predicted locations
 
-	// distance travelled between two successive frames, and current speed of the puck. 
-	double distance, puckSpeed;
-
 	// variables for thresholding & morph operations. 
 	int thresh, maxval;
 	int size, iterations, offset;
+	// structuring element for findPuck
+	Mat element;
 
 	//-- constructor
 	puckTracker(); 
 
 	//-- calibrate the camera using a set of input images
-
 
 	// main processing loop for the tracker
 	void process(void);
@@ -98,7 +92,7 @@ public:
 	int findPuck(Mat& src, Mat& img, Puck& puck);
 
 	// validates the size and vertical position of the assumed puck object
-	bool validatePuck(int size, Point2d pos, Mat& frame);
+	bool validatePuck(double contourArea, Point2d pos, Mat& frame);
 
 	// does nothing yet
 	void trackOpponent(vector<Point> contours, Point2d position);
@@ -118,12 +112,12 @@ public:
 	bool getDirection(Puck& puck); 
 
 	string constructMessage(Puck puck);
+
 	string constructMessage(Prediction p);
 
+	Mat findTransformationMatrix(cv::Mat& src, Rect& _roi);
 
 };
-
-
 
 void dilation(cv::Mat& im, int iterations, int elem, int size);
 void erosion(cv::Mat& im, int iterations, int elem, int size);

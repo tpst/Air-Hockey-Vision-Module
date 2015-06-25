@@ -32,13 +32,10 @@ public:
 	Rect roi;
 	Mat tform; 
 
-	//-- bool for testing at home. if true, open video file, else open webcam.
-	bool video;
-	bool debugmode;
-	//-- do we need to calibrate the camera?
-	bool calibrated;
-	//-- YES if communicating with robot, NO if vision is run standalone
-	bool talking; 
+	bool video; //-- load recording
+	bool debugmode; //-- debugging
+	bool calibrated; //-- camera calibrated y/n?
+	bool talking; //-- communicating with abb
 
 	//-- output from camera calibration. 
 	Mat cameraMatrix;

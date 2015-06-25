@@ -42,17 +42,18 @@ kalman_filter::kalman_filter(void)
 	Q = P*1e-5;
 
 	// Measurement noise covariance (x, y, vx, vy)
-	R << 1, 0.0,
-		 0.0, 1;
-	R = R*10e-9;
+	R << 1e-8, 0.0,
+		 0.0, 9e-7;
+	
+
 }
 
 Mat kalman_filter::filter(cv::Point2d pos)
 {
-	cv::Mat_<float> Z(2, 1); // measurement matrix [x, y]
-	Z << pos.x, pos.y;
+	cv::Mat_<float> z(2, 1); // measurement matrix [x, y]
+	z << pos.x, pos.y;
 
-	cout << "Measurement = " << endl << " " << Z << endl << endl;
+	cout << "Measurement = " << endl << " " << z << endl << endl;
 
 	// Time Update (Prediction)
 	// ========================
@@ -73,11 +74,27 @@ Mat kalman_filter::filter(cv::Point2d pos)
 	//cout << " 2. Kalman Gain: " << endl << " " << K << endl << endl;
 
 	// Update the estimate via Z
-	x = x + (K * (Z - (H * x)));
+	x = x + (K * (z - (H * x)));
 	cout << "2. update estimate x " << endl << " " << x << endl << endl;
 
 	// Update Error covariance
 	P = (I - K*H)*P;
 	//cout << "2. update error covariance (P)" << endl << " " << P << endl << endl;
-	return x;
+
+	return x; //-- return state estimation
+}
+
+Mat kalman_filter::filter() {
+
+	// Time Update (Prediction)
+	// ========================
+	// project the state ahead
+	x = (F * x);
+	cout << " 1. State = " << endl << " " << x << endl << endl;
+
+	// project the error covariance ahead
+	P = F*P*F.t() + Q;
+	//cout << " 1. Next covariance = " << endl << " " << P << endl << endl;
+
+	return x; //-- return state estimation
 }

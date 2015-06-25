@@ -214,6 +214,7 @@ void puckTracker::process(void)
 			cv::Mat_<float> x = kf.filter(puck.position);
 			float temp1 = *x[0];
 			float temp2 = *x[1];
+
 			circle(table, Point(temp1, temp2), 12, Scalar(255,0,255), 1, 8);
 
 			if(talking == true) // send puck information to robot. 
@@ -263,6 +264,11 @@ void puckTracker::process(void)
 		{
 			puck.last_position = Point(-1, -1);
 			unfound_count++;
+			cv::Mat_<float> x = kf.filter();
+			float kalmanGuessX = *x[0];
+			float kalmanGuessY = *x[1];
+
+			circle(table, Point(kalmanGuessX, kalmanGuessY), 12, Scalar(255,0,255), 1, 8);
 		}
 
 		imshow("frame", table);

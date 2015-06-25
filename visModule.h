@@ -7,6 +7,8 @@
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
 
+#include "tracking.h"
+
 #define VISION_PORT 5003
 
 using namespace cv;

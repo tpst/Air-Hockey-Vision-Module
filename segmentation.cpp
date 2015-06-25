@@ -55,7 +55,7 @@ int puckTracker::findPuck(Mat& frame, Mat& img, Puck& puck)
 					opponent_index = i;
 					opponent_found = true;
 				}
-				if((pt.x > frame.cols*0.95f) && (contourArea(hull[i]) > 150)) 
+				if((pt.x > frame.cols*0.98f) && (contourArea(hull[i]) > 150)) 
 				{
 					if((pt.y > frame.rows*0.25f) && (pt.y < frame.rows*0.75f))
 					{
@@ -92,6 +92,22 @@ int puckTracker::findPuck(Mat& frame, Mat& img, Puck& puck)
 		imshow("scene", scene);
 	}
 	return puck_found;
+}
+
+bool puckTracker::validatePuck(double contourArea, Point2d pos, Mat& frame) 
+{
+	bool valid = false;
+
+	if (pos.x > frame.cols*0.05f) // check horizontal position of puck - must be above first .125 of table.
+	{
+		if((contourArea >= 220) && (contourArea <= 500)) 
+		{
+			valid = true;
+		} else {
+			//cout << size << endl;
+		}
+	}
+	return valid;
 }
 
 Mat puckTracker::closeImage(Mat& src, int size, int iterations, int offset)

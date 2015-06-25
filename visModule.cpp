@@ -182,16 +182,15 @@ void puckTracker::process(void)
 		namedWindow("thresholding", CV_WINDOW_NORMAL); // segmentation output
 		createTrackbar("thresh", "thresholding", &thresh, 255);
 	}
-
+	int unfound_count = 0;
 	puck.last_position = Point2d(-1,-1); // initialise temporary position point of the puck. 
+	kalman_filter kf;
 
 	//-- Main Process Loop
 	while (waitKey(1) != 32)
 	{	
-		// --timer stuff
+		// --timer 
 		double start = CLOCK();
-
-		//////////////////
 		
 		Mat temp = getFrame(cap); // capture frame from input source
 		
@@ -206,16 +205,20 @@ void puckTracker::process(void)
 		Mat table = frame(roi); // this will be the cropped image that gets processed
 		
 		ratio = table.rows / 1.1f; // 110 cm is the table width. ratio is the ratio of pixel to m.
-		mmratio = table.rows / 1100.0f;
+		mmratio = table.rows / 1100.0f; // ratio in mm
 
 		string message = ""; //initialise message string for robot. 
 
 		if (findPuck(table, ref(roi), puck)) // finds the puck in the frame, fills variables in pucktracker class
 		{
-			message = constructMessage(puck); // puck was found, so send its information to the robot. 
+			cv::Mat_<float> x = kf.filter(puck.position);
+			float temp1 = *x[0];
+			float temp2 = *x[1];
+			circle(table, Point(temp1, temp2), 12, Scalar(255,0,255), 1, 8);
 
 			if(talking == true) // send puck information to robot. 
-			{				
+			{	
+				message = constructMessage(puck); // puck was found, construct a message to send to the robot
 				boost::system::error_code ignored_error;
 				boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
 			}
@@ -223,17 +226,25 @@ void puckTracker::process(void)
 			if (puck.last_position == Point2d(-1, -1)) // if this is the first recent instance of the puck being found
 			{
 				puck.duration = CLOCK();
+
+				if(unfound_count > 10) {
+					unfound_count = 0;
+					// new kalman filter
+				}
+
 				puck.last_position = puck.position; // update position variables. 
 			} 
-			else // we have found the puck in 2 different frames
+			else // we have found the puck in 2 successive frames
 			{
 				puck.last_duration = puck.duration;
 				puck.duration = CLOCK(); //update timer information
 
 				puck.flag = getDirection(puck); // find direction
-				if(puck.flag != 1) all_pred.clear(); // used for tracking our predictions
+
+				if(puck.flag != 1) all_pred.clear(); // used for keeping track of puck predictions
 
 				puck.velocity = getVelocity(puck, ratio);
+
 				if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
 				{
 					predict(table, puck.last_position, puck.position, puck.velocity, message);
@@ -251,6 +262,7 @@ void puckTracker::process(void)
 		else // puck wasnt found - reset last position. 
 		{
 			puck.last_position = Point(-1, -1);
+			unfound_count++;
 		}
 
 		imshow("frame", table);
@@ -258,10 +270,12 @@ void puckTracker::process(void)
 
 }
 
+/*
+ * Returns 1 if the puck is moving towards the robot, otherwise returns 0
+ */
 bool puckTracker::getDirection(Puck& puck) 
 {
 	if(puck.position.x > puck.last_position.x) return 1;
-	
 	return 0;
 }
 
@@ -273,22 +287,6 @@ double puckTracker::getVelocity(Puck& puck, double ratio)
 	time = time*0.001f; // convert to s
 	//cout << "v : " << puck.velocity << " m/s" << endl;
 	return distance/time;
-}
-
-bool puckTracker::validatePuck(double contourArea, Point2d pos, Mat& frame) 
-{
-	bool valid = false;
-
-	if (pos.x > frame.cols*0.05f) // check horizontal position of puck - must be above first .125 of table.
-	{
-		if((contourArea >= 220) && (contourArea <= 500)) 
-		{
-			valid = true;
-		} else {
-			//cout << size << endl;
-		}
-	}
-	return valid;
 }
 
 void puckTracker::trackOpponent(vector<Point> contours, Point2d position)

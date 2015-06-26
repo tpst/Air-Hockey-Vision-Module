@@ -89,7 +89,7 @@ int puckTracker::findPuck(Mat& frame, Mat& img, Puck& puck)
 			circle(frame, mc[opponent_index], 8, Scalar(0, 0, 0), -1, 8);
 			circle(scene, mc[opponent_index], 8, Scalar(0, 255, 0), -1, 8);
 		}
-		imshow("scene", scene);
+		//imshow("scene", scene);
 	}
 	return puck_found;
 }

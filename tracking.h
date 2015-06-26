@@ -1,4 +1,6 @@
-
+/* 
+ * Kalman filter for tracking the position of the hockey puck
+ */
 class kalman_filter {
 
 	private:
@@ -26,4 +28,10 @@ class kalman_filter {
 
 };
 
+/*
+ * Used for estimating the true prediction of the puck at intercept point
+ */ 
+class alphaBetaFilter {
+
+};
 

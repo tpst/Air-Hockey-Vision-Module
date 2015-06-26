@@ -184,6 +184,8 @@ void puckTracker::process(void)
 	}
 	int unfound_count = 0;
 	puck.last_position = Point2d(-1,-1); // initialise temporary position point of the puck. 
+	Point2d position_estimate;
+	Point2d last_position_estimate;
 	kalman_filter kf;
 
 	//-- Main Process Loop
@@ -214,9 +216,9 @@ void puckTracker::process(void)
 			cv::Mat_<float> x = kf.filter(puck.position);
 			float temp1 = *x[0];
 			float temp2 = *x[1];
-
+			position_estimate = Point2d(temp1, temp2);
 			circle(table, Point(temp1, temp2), 12, Scalar(255,0,255), 1, 8);
-
+			unfound_count = 0;
 			if(talking == true) // send puck information to robot. 
 			{	
 				message = constructMessage(puck); // puck was found, construct a message to send to the robot
@@ -227,11 +229,6 @@ void puckTracker::process(void)
 			if (puck.last_position == Point2d(-1, -1)) // if this is the first recent instance of the puck being found
 			{
 				puck.duration = CLOCK();
-
-				if(unfound_count > 10) {
-					unfound_count = 0;
-					// new kalman filter
-				}
 
 				puck.last_position = puck.position; // update position variables. 
 			} 
@@ -246,32 +243,54 @@ void puckTracker::process(void)
 
 				puck.velocity = getVelocity(puck, ratio);
 
-				if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
-				{
-					predict(table, puck.last_position, puck.position, puck.velocity, message);
-				}
-				if(talking == true) // send prediction information to robot. 
-				{				
-					boost::system::error_code ignored_error;
-					boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
-				}
+				//if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
+				//{
+				//	predict(table, puck.last_position, puck.position, puck.velocity, message);
+				//}
+				//if(talking == true) // send prediction information to robot. 
+				//{				
+				//	boost::system::error_code ignored_error;
+				//	boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
+				//}
 				
-				puck.last_position = puck.position; // update position
+				//puck.last_position = puck.position; // update position
 			}
 			all_pos.push_back(puck.position); // store all known positions of the puck
 		} 
 		else // puck wasnt found - reset last position. 
 		{
-			puck.last_position = Point(-1, -1);
 			unfound_count++;
-			cv::Mat_<float> x = kf.filter();
-			float kalmanGuessX = *x[0];
-			float kalmanGuessY = *x[1];
+			cv::Mat_<double> x = kf.filter();
+			double kalmanGuessX = *x[0];
+			double kalmanGuessY = *x[1];
+			position_estimate = Point2d(kalmanGuessX, kalmanGuessY);
+			circle(table, Point2d(kalmanGuessX, kalmanGuessY), 12, Scalar(255,0,255), 1, 8);
+		}
+		// draw last kalman position
+		circle(table, last_position_estimate, 12, Scalar(180, 0, 180), 1, 8);
 
-			circle(table, Point(kalmanGuessX, kalmanGuessY), 12, Scalar(255,0,255), 1, 8);
+		if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
+		{
+			predict(table, last_position_estimate, position_estimate, puck.velocity, message);
+		}
+		if(talking == true) // send prediction information to robot. 
+		{				
+			boost::system::error_code ignored_error;
+			boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
+		}
+
+		if(unfound_count == 10) //-- only reset puck position if it disappears for 10 frames
+		{   
+			puck.last_position = Point2d(-1, -1);
+			last_position_estimate = Point2d(-1, -1);
+		} else {
+			puck.last_position = puck.position;
+			last_position_estimate = position_estimate;
 		}
 
 		imshow("frame", table);
+		//waitKey(0);
+
 	}
 
 }

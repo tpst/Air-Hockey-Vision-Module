@@ -13,8 +13,8 @@ kalman_filter::kalman_filter(void)
 	x << 0.0, 0.0, 0.0, 0.0;
 
 	// Transition matrix (x, y, vx, vy)
-	F << 1.0, 0.0, 0.04, 0.0,
-		 0.0, 1.0, 0.0, 0.04, 
+	F << 1.0, 0.0, 0.4, 0.0,
+		 0.0, 1.0, 0.0, 0.4, 
 		 0.0, 0.0, 1.0, 0.0,
 		 0.0, 0.0, 0.0, 1.0;
 
@@ -33,21 +33,22 @@ kalman_filter::kalman_filter(void)
 		 0.0, 1, 0.0, 0.0,
 		 0.0, 0.0, 1, 0.0, 
 		 0.0, 0.0, 0.0, 1;
-	P = P*1e-1;
+	P = P*1e-4;
 
-	Q << 1, 0.0, 0.0, 0.0, 
-		 0.0, 1, 0.0, 0.0,
-		 0.0, 0.0, 1, 0.0, 
-		 0.0, 0.0, 0.0, 1;
-	Q = P*1e-5;
+	Q << 1/4, 0.0, 1/2, 0.0, 
+		 0.0, 1/4, 0.0, 1/2,
+		 0.0, 0.0, 1/4, 0.0, 
+		 0.0, 0.0, 0.0, 1/4;
+	Q = P*1e-2;
 
 	// Measurement noise covariance (x, y, vx, vy)
-	R << 1e-8, 0.0,
-		 0.0, 9e-7;
+	R << 1e-7, 0.0,
+		 0.0, 1e-7;
 	
 
 }
 
+// Kalman filter update method
 Mat kalman_filter::filter(cv::Point2d pos)
 {
 	cv::Mat_<float> z(2, 1); // measurement matrix [x, y]
@@ -84,6 +85,8 @@ Mat kalman_filter::filter(cv::Point2d pos)
 	return x; //-- return state estimation
 }
 
+
+// Predict when there is no measurement data available
 Mat kalman_filter::filter() {
 
 	// Time Update (Prediction)

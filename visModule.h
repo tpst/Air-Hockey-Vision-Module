@@ -47,7 +47,10 @@ public:
 	struct Puck {
 		Point2d position;
 		Point2d last_position;
+		Point2d position_estimate;
+		Point2d last_position_estimate;
 		double velocity; 
+		double last_velocity;
 		double duration; // time between puck @ last_position and puck @ current position
 		double last_duration;	
 		bool flag; // 1 if it is moving towards robot

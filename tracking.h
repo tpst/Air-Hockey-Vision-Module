@@ -1,7 +1,7 @@
 /* 
  * Kalman filter for tracking the position of the hockey puck
  */
-class kalman_filter {
+class puck_filter {
 
 	private:
 		cv::Mat_<float> F; 		// Transition matrix (x, y, vx, vy)
@@ -19,13 +19,10 @@ class kalman_filter {
 
 	public:
 		cv::Mat filter(cv::Point2d pos);
-		cv::Mat kalman_filter::filter();
+		cv::Mat filter();
 
-		kalman_filter(); // constructor
-		void initPuckKalman();
-		void initPredictionKalman();
+		puck_filter(cv::Point2d pos); // constructor
 
-		void initialStateGuess(cv::Point2d pos);
 };
 
 class prediction_filter {
@@ -48,9 +45,6 @@ class prediction_filter {
 		cv::Mat filter(cv::Point2d pos);
 		cv::Mat filter();
 
-		prediction_filter(); // constructor
-
-		void initPredictionKalman();
-		void initialStateGuess(cv::Point2d pos);
+		prediction_filter(cv::Point2d pos); // constructor
+		
 };
-

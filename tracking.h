@@ -4,9 +4,6 @@
 class kalman_filter {
 
 	private:
-
-		bool customize; //-- trackbars to modify values
-
 		cv::Mat_<float> F; 		// Transition matrix (x, y, vx, vy)
 		cv::Mat_<float> H;		// Measurement matrix (x, y)
 		cv::Mat_<float> x;		// initial state location (x, y, vx, vy)
@@ -25,13 +22,35 @@ class kalman_filter {
 		cv::Mat kalman_filter::filter();
 
 		kalman_filter(); // constructor
+		void initPuckKalman();
+		void initPredictionKalman();
 
+		void initialStateGuess(cv::Point2d pos);
 };
 
-/*
- * Used for estimating the true prediction of the puck at intercept point
- */ 
-class alphaBetaFilter {
+class prediction_filter {
 
+	private:
+		cv::Mat_<float> F; 		// Transition matrix (x, y, vx, vy)
+		cv::Mat_<float> H;		// Measurement matrix (x, y)
+		cv::Mat_<float> x;		// initial state location (x, y, vx, vy)
+	
+		cv::Mat_<float> K;		// Kalman Gain
+		cv::Mat_<float> S;		// temp
+		cv::Mat_<float> I;      // Identity
+
+		// Covariances
+		cv::Mat_<float> P;      // Covariance matrix (initial uncertainty)
+		cv::Mat_<float> Q;		// Process noise covariance
+		cv::Mat_<float> R;		// Measurement noise covariance (x, y)
+
+	public:
+		cv::Mat filter(cv::Point2d pos);
+		cv::Mat filter();
+
+		prediction_filter(); // constructor
+
+		void initPredictionKalman();
+		void initialStateGuess(cv::Point2d pos);
 };
 

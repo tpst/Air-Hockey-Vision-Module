@@ -309,5 +309,7 @@ Mat puckTracker::findTransformationMatrix(cv::Mat& src, Rect& _roi)
 
 	_roi = boundingRect(contoursAll2);
 
+	destroyWindow("Trackbars");
+
 	return transform_matrix;
 }

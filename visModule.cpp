@@ -182,11 +182,16 @@ void puckTracker::process(void)
 		namedWindow("thresholding", CV_WINDOW_NORMAL); // segmentation output
 		createTrackbar("thresh", "thresholding", &thresh, 255);
 	}
+
 	int unfound_count = 0;
 	puck.last_position = Point2d(-1,-1); // initialise temporary position point of the puck. 
 	Point2d position_estimate;
 	Point2d last_position_estimate;
 	kalman_filter kf;
+	kf.initPuckKalman();
+	kalman_filter pf;
+	pf.initPredictionKalman();
+	bool guess = true; 
 
 	//-- Main Process Loop
 	while (waitKey(1) != 32)
@@ -239,21 +244,15 @@ void puckTracker::process(void)
 
 				puck.flag = getDirection(puck); // find direction
 
-				if(puck.flag != 1) all_pred.clear(); // used for keeping track of puck predictions
+				if(puck.flag != 1) 
+				{
+					all_pred.clear(); // used for keeping track of puck predictions
+					pf.initPredictionKalman();
+					guess = true;
+				}
 
 				puck.velocity = getVelocity(puck, ratio);
 
-				//if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
-				//{
-				//	predict(table, puck.last_position, puck.position, puck.velocity, message);
-				//}
-				//if(talking == true) // send prediction information to robot. 
-				//{				
-				//	boost::system::error_code ignored_error;
-				//	boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
-				//}
-				
-				//puck.last_position = puck.position; // update position
 			}
 			all_pos.push_back(puck.position); // store all known positions of the puck
 		} 
@@ -269,10 +268,22 @@ void puckTracker::process(void)
 		// draw last kalman position
 		circle(table, last_position_estimate, 12, Scalar(180, 0, 180), 1, 8);
 
+		pair<Point2d, double> prediction;
 		if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
 		{
-			predict(table, last_position_estimate, position_estimate, puck.velocity, message);
+			prediction = predict(table, last_position_estimate, position_estimate, puck.velocity, message);
+			if(guess == true) 
+			{
+				pf.initialStateGuess(prediction.first);
+				guess = false;
+			}
+			cv::Mat_<double> x = pf.filter(prediction.first);
+			double prediction_x = *x[0];
+			double prediction_y = *x[1];
+
+			circle(table, Point2d(prediction_x, prediction_y), 15, Scalar(0,0,0), -2, 8);
 		}
+
 		if(talking == true) // send prediction information to robot. 
 		{				
 			boost::system::error_code ignored_error;
@@ -333,9 +344,10 @@ Mat puckTracker::getFrame(VideoCapture& cap)
 	return frame;
 }
 	
-bool puckTracker::predict(Mat& src, Point2d last, Point2d current, double velocity, string& result) 
+pair<Point2d, double> puckTracker::predict(Mat& src, Point2d last, Point2d current, double velocity, string& result) 
 {
 	double predict_x, predict_y; // x and y values of the predicted puck location
+	pair<Point2d, double> prediction;
 
 	int bounce_count = 0; // number of bounces 
 	int bounce_max = 3; // maximum number of bounces calculated
@@ -356,7 +368,7 @@ bool puckTracker::predict(Mat& src, Point2d last, Point2d current, double veloci
 		// away from robot - predict location at opponent goal
 		predict_x = 0;
 	} else {
-		return done; //stationary or travelling vertical. Do nothing
+		return prediction; //stationary or travelling vertical. Do nothing
 	}
 
 	// calculate predict_y 
@@ -417,11 +429,14 @@ bool puckTracker::predict(Mat& src, Point2d last, Point2d current, double veloci
 		}
 
 	} while ((bounce_count != bounce_max) && (done != true)); //predict until we've bounced 3 times or found the end. 
+	
 
 	if(done && predict_x != 0) // only construct prediction if its heading towards robot goal 
 	{
 		Prediction p;
 		// fill in prediction class to be sent to robot. 
+		prediction = pair<Point2d, double> (Point2d(predict_x, predict_y), p.angle);
+
 		p.distance = predict_y - (src.rows/2);
 		p.angle = atan(slope); // incoming angle in radians 
 		p.eta = 0;
@@ -431,8 +446,9 @@ bool puckTracker::predict(Mat& src, Point2d last, Point2d current, double veloci
 		p.t_err = 0;
 		p.v_err = 0;
 		result = constructMessage(p);
+		
 	}
-	return done;
+	return prediction;
 }
 
 // below is used for finding the transformation matrix for a specific camera setup. 

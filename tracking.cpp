@@ -6,10 +6,18 @@
 using namespace cv;
 using namespace std;
 
-kalman_filter::kalman_filter(void) 
-	: F(4, 4), H(2, 4), P(4, 4), R(2, 2), x(4, 1), I(4, 4), Q(4, 4)
+kalman_filter::kalman_filter(void) {}
+
+void kalman_filter::initPuckKalman() 
 {
-	// initial state (location, velocity)
+	F = Mat_<float>(4, 4);
+	H = Mat_<float>(2, 4); 
+	P = Mat_<float>(4, 4);
+	R = Mat_<float>(2, 2);
+	x = Mat_<float>(4, 1);
+	I = Mat_<float>(4, 4);
+	Q = Mat_<float>(4, 4);
+		// initial state (location, velocity)
 	x << 0.0, 0.0, 0.0, 0.0;
 
 	// Transition matrix (x, y, vx, vy)
@@ -44,8 +52,50 @@ kalman_filter::kalman_filter(void)
 	// Measurement noise covariance (x, y, vx, vy)
 	R << 1e-7, 0.0,
 		 0.0, 1e-7;
-	
+}
 
+void kalman_filter::initPredictionKalman() 
+{
+	F = Mat_<float>(2, 2);
+	H = Mat_<float>(2, 2); 
+	P = Mat_<float>(2, 2);
+	R = Mat_<float>(2, 2);
+	I = Mat_<float>(2, 2);
+	Q = Mat_<float>(2, 2);
+	
+	// Transition matrix (y theta)
+	F << 1.0, 0.0,
+		 0.0, 1.0; 
+		 
+	// Measurement matrix (y theta)
+	H << 1.0, 0.0,
+		 0.0, 1.0;
+
+	// Identity matrix
+	I << 1.0, 0.0,
+		 0.0, 1.0;
+
+	// Covariance matrix (initial uncertainty)
+	P << 1, 0.0, 
+		 0.0, 1;
+		P = P*1e-6;
+
+	Q << 1/4, 0.0, 
+		 0.0, 1/4;
+	Q = P*1e-2;
+
+	// Measurement noise covariance (y theta)
+	R << 1e-5, 0.0,
+		 0.0, 1e-5;
+}
+
+void kalman_filter::initialStateGuess(Point2d pos) 
+{
+	x.release();
+	x = Mat_<float>(2, 1);
+	// initial prediction(x, y)
+	x << pos.x, pos.y;
+	cout << x << endl;
 }
 
 // Kalman filter update method
@@ -76,7 +126,7 @@ Mat kalman_filter::filter(cv::Point2d pos)
 
 	// Update the estimate via Z
 	x = x + (K * (z - (H * x)));
-	cout << "2. update estimate x " << endl << " " << x << endl << endl;
+	//cout << "2. update estimate x " << endl << " " << x << endl << endl;
 
 	// Update Error covariance
 	P = (I - K*H)*P;
@@ -93,7 +143,7 @@ Mat kalman_filter::filter() {
 	// ========================
 	// project the state ahead
 	x = (F * x);
-	cout << " 1. State = " << endl << " " << x << endl << endl;
+	//cout << " 1. State = " << endl << " " << x << endl << endl;
 
 	// project the error covariance ahead
 	P = F*P*F.t() + Q;

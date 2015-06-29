@@ -4,6 +4,8 @@
 #include <ctime>
 #include <iostream>
 #include <string>
+#include <utility> // pairs
+
 #include <boost/asio.hpp>
 #include <boost/array.hpp>
 
@@ -57,6 +59,7 @@ public:
 
 	// prediction struct sent to robot when the puck is heading in that direction.
 	struct Prediction {
+		Point2d position; // (x,y) of prediction
 		double distance; // along goal end w.r.t robot. 
 		double angle; // incoming angle
 		double eta;
@@ -106,7 +109,7 @@ public:
 
 	double getVelocity(Puck& puck, double ratio);
 
-	bool predict(Mat& src, Point2d last, Point2d current, double velocity, string& result);
+	pair<Point2d, double> predict(Mat& src, Point2d last, Point2d current, double velocity, string& result);
 	
 	bool getDirection(Puck& puck); 
 

@@ -143,18 +143,17 @@ Mat prediction_filter::filter(cv::Point2d pos)
 {
 	cv::Mat_<float> z(3, 1); // measurement matrix [x, y, theta]
 	z << pos.x, pos.y, 0.0;
-
-	//cout << "Measurement = " << endl << " " << z << endl << endl;
+	
+	// prevent drifting errors 
+	if(x[0][0] != pos.x) x[0][0] = pos.x;
 
 	// Time Update (Prediction)
 	// ========================
 	// project the state ahead
 	x = (F * x);
-	//cout << " 1. State = " << endl << " " << x << endl << endl;
-
+	
 	// project the error covariance ahead
 	P = F*P*F.t() + Q;
-	//cout << " 1. Next covariance = " << endl << " " << P << endl << endl;
 
 	// Measurement Update (Correction)
 	// ==============================
@@ -162,33 +161,15 @@ Mat prediction_filter::filter(cv::Point2d pos)
 
 	S = H * P * H.t() + R;
 	K = (P*H.t())*S.inv();
-	//cout << " 2. Kalman Gain: " << endl << " " << K << endl << endl;
 
 	// Update the estimate via Z
 	x = x + (K * (z - (H * x)));
-	//cout << "2. update estimate x " << endl << " " << x << endl << endl;
 
 	// Update Error covariance
 	P = (I - K*H)*P;
-	//cout << "2. update error covariance (P)" << endl << " " << P << endl << endl;
 
 	return x; //-- return state estimation
 }
 
 
-// Predict when there is no measurement data available
-Mat prediction_filter::filter() {
-
-	// Time Update (Prediction)
-	// ========================
-	// project the state ahead
-	x = (F * x);
-	//cout << " 1. State = " << endl << " " << x << endl << endl;
-
-	// project the error covariance ahead
-	P = F*P*F.t() + Q;
-	//cout << " 1. Next covariance = " << endl << " " << P << endl << endl;
-
-	return x; //-- return state estimation
-}
 

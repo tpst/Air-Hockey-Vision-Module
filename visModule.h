@@ -108,8 +108,6 @@ public:
 	//-- morphological operations
 	Mat closeImage(Mat& src, int size, int iterations, int offset);
 
-	Rect findROI(Mat& frame);
-
 	double getVelocity(Puck& puck, double ratio);
 
 	pair<Point2d, double> predict(Mat& src, Point2d last, Point2d current, double velocity, string& result);

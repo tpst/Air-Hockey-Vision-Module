@@ -73,18 +73,23 @@ double avgfps()
 //   sets default variables for thresholding functions, some logic, camera calibration
 puckTracker::puckTracker(void)
 {
-	video = false; // loading video
+	video = true; // loading video
 	debugmode = false;
 	calibrated = true; // calibration is done already. 
 	talking = false; // not communicating with robot. 
 
 	if(calibrated == true) 
 	{
-		cameraMatrix = (Mat_<float>(3, 3) << 413.1620488515831, 0, 325.5774757503481,
+		/*cameraMatrix = (Mat_<float>(3, 3) << 413.1620488515831, 0, 325.5774757503481,
 											 0, 415.657300643115, 249.0529823718357,
 											 0, 0, 1);
 		distCoeffs = (Mat_<float>(5, 1) << -0.4623944646292301, 0.3170825823125478, 0.004937692934118649, 
-											-0.003810017964592343, -0.1139398551683426);
+											-0.003810017964592343, -0.1139398551683426);*/
+		cameraMatrix = (Mat_<float>(3, 3) << 341.5253829717565, 0, 318.9527119356318,
+											 0, 342.9773639570526, 256.3758357260393,
+											 0, 0, 1);
+		distCoeffs = (Mat_<float>(5, 1) << -0.3006391870118596, 0.1087098333698428, 0.0008243753385748786, 
+											-0.0009256599655751875, -0.02002184753448433);
 	} 
 	else 
 	{
@@ -230,7 +235,7 @@ void puckTracker::process(void)
 		} else {
 			// did not find puck
 			if(previous == true) {		
-				if(unfound_count++ > 10) {
+				if(unfound_count++ > 15) {
 					// reset kalman filter.
 					puck.last_position = Point2d(-1, -1);
 					previous = false;
@@ -246,7 +251,7 @@ void puckTracker::process(void)
 		if(previous == true) {
 			// If previous information exists, make a prediction
 			puck.flag = getDirection(puck);
-			if(puck.flag != 1) 
+			if(puck.flag != last_flag) 
 			{
 				all_pred.clear(); // clear all predictions
 				all_pos.clear();
@@ -254,19 +259,21 @@ void puckTracker::process(void)
 			puck.velocity = getVelocity(puck, ratio);
 			pair<Point2d, double> prediction;
 
-			if(puck.velocity > 0.15) {
+			if(puck.velocity > 0.2) {
 				prediction = predict(table, puck.last_position_estimate, puck.position_estimate, puck.velocity, message);
 				if(puck.flag != last_flag || puck.velocity > 5*puck.last_velocity) {
 					// reset prediction filter after change in direction or massive speed increase
 					pf = prediction_filter(prediction.first);
-					cout << "New Prediction: " << prediction.first << endl;
+					cout << endl << "New Prediction: " << endl;
+					if(puck.flag != last_flag) cout << "direction" << endl;
+					else if(puck.velocity > 5*puck.last_velocity) cout << "speed" << endl;
 				}	
 				kalman_result = pf.filter(prediction.first);
 				double px = *kalman_result[0];
 				double py = *kalman_result[1];
 				// kalman prediction 
 				circle(table, Point2d(px, py), 8, Scalar(0,0,0), 3, 8);
-				cout << " K: " << Point2d(px, py) << " Pos: " << puck.position_estimate << endl;
+				cout << " K: " << Point2d(px, py) << /*" Pos: " << puck.position_estimate << */endl;
 
 			}
 			
@@ -281,7 +288,6 @@ void puckTracker::process(void)
 		puck.last_duration = puck.duration;
 		puck.last_velocity = puck.velocity;
 		imshow("frame", table);
-
 	}
 
 	/*		if(talking == true) // send prediction information to robot. 
@@ -406,8 +412,8 @@ pair<Point2d, double> puckTracker::predict(Mat& src, Point2d last, Point2d curre
 			// weve made a good prediction that ends at one goal end. 
 			line(src, last_point, Point2d(predict_x, predict_y), Scalar(255, 0, 0), 2, 8);
 
-			if(predict_x != 0) 
-			{
+			//if(predict_x != 0) 
+			//{
 				all_pred.push_back(Point2d(predict_x, predict_y));
 				if(all_pred.size() > 14) all_pred.erase(all_pred.begin());
 				for(int i = 0; i < all_pred.size(); i++) // draw all predictions
@@ -420,7 +426,7 @@ pair<Point2d, double> puckTracker::predict(Mat& src, Point2d last, Point2d curre
 				}
 				all_pos.push_back(current);
 
-			}
+			//}
 
 			circle(src, Point2d(predict_x, predict_y), 10, Scalar(255, 255, 255), -1, 8);
 			cout << "Prediction: " << Point2d(predict_x, predict_y);

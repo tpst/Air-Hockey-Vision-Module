@@ -13,8 +13,8 @@ puck_filter::puck_filter(Point2d pos)
 	x << pos.x, pos.y, 0.0, 0.0;
 
 	// Transition matrix (x, y, vx, vy)
-	F << 1.0, 0.0, 0.4, 0.0,
-		 0.0, 1.0, 0.0, 0.4, 
+	F << 1.0, 0.0, 4.0, 0.0, //better performance using 4.0 than 0.4 ?
+		 0.0, 1.0, 0.0, 4.0, 
 		 0.0, 0.0, 1.0, 0.0,
 		 0.0, 0.0, 0.0, 1.0;
 
@@ -33,17 +33,17 @@ puck_filter::puck_filter(Point2d pos)
 		 0.0, 1, 0.0, 0.0,
 		 0.0, 0.0, 1, 0.0, 
 		 0.0, 0.0, 0.0, 1;
-	P = P*1e-2;
+	P = P*1e-2; //1e-2
 
 	Q << 1/4, 0.0, 1/2, 0.0, 
 		 0.0, 1/4, 0.0, 1/2,
 		 0.0, 0.0, 1/4, 0.0, 
 		 0.0, 0.0, 0.0, 1/4;
-	Q = P*1e-2;
+	Q = P*1e-3; //1e-4
 
 	// Measurement noise covariance (x, y, vx, vy)
-	R << 1e-7, 0.0,
-		 0.0, 1e-7;
+	R << 1e-6, 0.0,
+		 0.0, 1e-6; // 1e07
  }
 
 // Kalman filter update method
@@ -125,17 +125,17 @@ prediction_filter::prediction_filter(Point2d pos)
 	P << 1.0, 0.0, 0.0, 
 		 0.0, 1, 0.0, 
 		 0.0, 0.0, 1;
-	P = P*1e-8;
+	P = P*1e-5; // 1e-4
 
 	Q << 1/4, 0.0, 0.0,
 		 0.0, 1/4, 0.0,
 		 0.0, 0.0, 1/4; 
-	Q = P*1e-5;
+	Q = P*1e-6; // 1e-6
 
 	// Measurement noise covariance (x, y, vx, vy)
 	R << 1e-6, 0.0, 0.0,
-		 0.0, 1e-7, 0.0, 
-		 0.0, 0.0, 1e-5;
+		 0.0, 1e-6, 0.0, 
+		 0.0, 0.0, 1e-6; //1e-4
  }
 
 // Kalman filter update method

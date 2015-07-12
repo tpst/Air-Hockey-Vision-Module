@@ -73,7 +73,7 @@ double avgfps()
 //   sets default variables for thresholding functions, some logic, camera calibration
 puckTracker::puckTracker(void)
 {
-	video = true; // loading video
+	video = false; // loading video
 	debugmode = false;
 	calibrated = true; // calibration is done already. 
 	talking = false; // not communicating with robot. 
@@ -177,7 +177,7 @@ void puckTracker::process(void)
 	{
 		//namedWindow("frame", CV_WINDOW_NORMAL); // input frame
 		namedWindow("thresholding", CV_WINDOW_NORMAL); // segmentation output
-		createTrackbar("thresh", "thresholding", &thresh, 255);
+		createTrackbar("thresh", "thresholding", &thresh, 80);
 	}
 	
 	Puck puck; // create instance of puck variable
@@ -224,7 +224,7 @@ void puckTracker::process(void)
 			double kx = *kalman_result[0];
 			double ky = *kalman_result[1];
 			puck.position_estimate = Point2d(kx, ky);
-			circle(table, puck.position_estimate, 12, Scalar(255,0,255), 1, 8);
+			circle(table, puck.position_estimate, 12, Scalar(0,0,0), 1, 8);
 			puck.last_position = puck.position;
 			
 		} else {
@@ -239,33 +239,39 @@ void puckTracker::process(void)
 					double kx = *kalman_result[0];
 					double ky = *kalman_result[1];
 					puck.position_estimate = Point2d(kx, ky);
-					circle(table, puck.position_estimate, 12, Scalar(255,0,255), 1, 8);
+					circle(table, puck.position_estimate, 12, Scalar(0,0,0), 1, 8);
 				} 
 			}
 		}
 		if(previous == true) {
 			// If previous information exists, make a prediction
 			puck.flag = getDirection(puck);
-			if(puck.flag != 1) all_pred.clear(); // clear all predictions
+			if(puck.flag != 1) 
+			{
+				all_pred.clear(); // clear all predictions
+				all_pos.clear();
+			}
 			puck.velocity = getVelocity(puck, ratio);
 			pair<Point2d, double> prediction;
 
 			if(puck.velocity > 0.15) {
 				prediction = predict(table, puck.last_position_estimate, puck.position_estimate, puck.velocity, message);
-				if(puck.flag != last_flag || puck.velocity > 3*puck.last_velocity) {
-					cout << puck.velocity << endl;
-					cout << puck.last_velocity << endl;
+				if(puck.flag != last_flag || puck.velocity > 5*puck.last_velocity) {
+					// reset prediction filter after change in direction or massive speed increase
 					pf = prediction_filter(prediction.first);
+					cout << "New Prediction: " << prediction.first << endl;
 				}	
 				kalman_result = pf.filter(prediction.first);
 				double px = *kalman_result[0];
 				double py = *kalman_result[1];
-				circle(table, Point2d(px, py), 15, Scalar(0,0,0), -1, 8);
+				// kalman prediction 
+				circle(table, Point2d(px, py), 8, Scalar(0,0,0), 3, 8);
+				cout << " K: " << Point2d(px, py) << " Pos: " << puck.position_estimate << endl;
 
 			}
 			
 			// draw last kalman estimate
-			circle(table, puck.last_position_estimate, 12, Scalar(180, 0, 180), 1, 8);
+			//circle(table, puck.last_position_estimate, 12, Scalar(180, 0, 180), 1, 8);
 			last_flag = puck.flag;
 		} 
 		
@@ -275,6 +281,7 @@ void puckTracker::process(void)
 		puck.last_duration = puck.duration;
 		puck.last_velocity = puck.velocity;
 		imshow("frame", table);
+
 	}
 
 	/*		if(talking == true) // send prediction information to robot. 
@@ -290,163 +297,6 @@ void puckTracker::process(void)
 			}
 */
 }
-//// Process loop. 
-//void puckTracker::process(void)
-//{
-//	
-//	Puck puck; // create instance of puck variable
-//	namedWindow("frame", CV_WINDOW_NORMAL); // input frame
-//
-//	//************COMMUNICATION *******************************************/
-//
-//		boost::asio::io_service io_service;
-//
-//	    // acceptor object needs to be created to listen for new connections
-//	    tcp::acceptor acceptor(io_service, tcp::endpoint(tcp::v4(), VISION_PORT)); 
-//
-//	    tcp::socket socket(io_service);
-//		if(talking == true)
-//		{
-//			cout << "Waiting for connection.." << endl;
-//			acceptor.accept(socket);
-//			cout << "Robot has connected. " << endl;
-//			string connected_message = "1"; // send something so robot controller knows we have connected.
-//			boost::system::error_code ignored_error;
-//			boost::asio::write(socket, boost::asio::buffer(connected_message), ignored_error);
-//		}
-//
-//	/*********************************************************************/
-//
-//	//configure thresholding
-//	if (debugmode == true)
-//	{
-//		//namedWindow("frame", CV_WINDOW_NORMAL); // input frame
-//		namedWindow("thresholding", CV_WINDOW_NORMAL); // segmentation output
-//		createTrackbar("thresh", "thresholding", &thresh, 255);
-//	}
-//
-//	int unfound_count = 0;
-//	puck.last_position = Point2d(-1,-1); // initialise temporary position point of the puck. 
-//	Point2d position_estimate;
-//	Point2d last_position_estimate;
-//	kalman_filter kf;
-//	kf.initPuckKalman();
-//	kalman_filter pf;
-//	pf.initPredictionKalman();
-//	bool guess = true; 
-//
-//	//-- Main Process Loop
-//	while (waitKey(1) != 32)
-//	{	
-//		// --timer 
-//		double start = CLOCK();
-//		
-//		Mat temp = getFrame(cap); // capture frame from input source
-//		
-//		frame_colour = temp.clone();
-//
-//		cvtColor(temp, temp, CV_BGR2GRAY);
-//		
-//		undistort(temp, frame, cameraMatrix, distCoeffs);
-//		
-//		warpPerspective(frame, frame, tform, frame.size());
-//
-//		Mat table = frame(roi); // this will be the cropped image that gets processed
-//		
-//		ratio = table.rows / 1.1f; // 110 cm is the table width. ratio is the ratio of pixel to m.
-//		mmratio = table.rows / 1100.0f; // ratio in mm
-//
-//		string message = ""; //initialise message string for robot. 
-//
-//		if (findPuck(table, ref(roi), puck)) // finds the puck in the frame, fills variables in pucktracker class
-//		{
-//			cv::Mat_<float> x = kf.filter(puck.position);
-//			float temp1 = *x[0];
-//			float temp2 = *x[1];
-//			position_estimate = Point2d(temp1, temp2);
-//			circle(table, Point(temp1, temp2), 12, Scalar(255,0,255), 1, 8);
-//			unfound_count = 0;
-//			if(talking == true) // send puck information to robot. 
-//			{	
-//				message = constructMessage(puck); // puck was found, construct a message to send to the robot
-//				boost::system::error_code ignored_error;
-//				boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
-//			}
-//
-//			if (puck.last_position == Point2d(-1, -1)) // if this is the first recent instance of the puck being found
-//			{
-//				puck.duration = CLOCK();
-//
-//				puck.last_position = puck.position; // update position variables. 
-//			} 
-//			else // we have found the puck in 2 successive frames
-//			{
-//				puck.last_duration = puck.duration;
-//				puck.duration = CLOCK(); //update timer information
-//
-//				puck.flag = getDirection(puck); // find direction
-//
-//				if(puck.flag != 1) 
-//				{
-//					all_pred.clear(); // used for keeping track of puck predictions
-//					pf.initPredictionKalman();
-//					guess = true;
-//				}
-//
-//				puck.velocity = getVelocity(puck, ratio);
-//
-//			}
-//			all_pos.push_back(puck.position); // store all known positions of the puck
-//		} 
-//		else // puck wasnt found - reset last position. 
-//		{
-//			unfound_count++;
-//			cv::Mat_<double> x = kf.filter();
-//			double kalmanGuessX = *x[0];
-//			double kalmanGuessY = *x[1];
-//			position_estimate = Point2d(kalmanGuessX, kalmanGuessY);
-//			circle(table, Point2d(kalmanGuessX, kalmanGuessY), 12, Scalar(255,0,255), 1, 8);
-//		}
-//		// draw last kalman position
-//		circle(table, last_position_estimate, 12, Scalar(180, 0, 180), 1, 8);
-//
-//		pair<Point2d, double> prediction;
-//		if(puck.velocity > 0.15) // if the puck is moving above a certain speed, predict its movement. 
-//		{
-//			prediction = predict(table, last_position_estimate, position_estimate, puck.velocity, message);
-//			if(guess == true) 
-//			{
-//				pf.initialStateGuess(prediction.first);
-//				guess = false;
-//			}
-//			cv::Mat_<double> x = pf.filter(prediction.first);
-//			double prediction_x = *x[0];
-//			double prediction_y = *x[1];
-//
-//			circle(table, Point2d(prediction_x, prediction_y), 15, Scalar(0,0,0), -2, 8);
-//		}
-//
-//		if(talking == true) // send prediction information to robot. 
-//		{				
-//			boost::system::error_code ignored_error;
-//			boost::asio::write(socket, boost::asio::buffer(message), ignored_error);
-//		}
-//
-//		if(unfound_count == 10) //-- only reset puck position if it disappears for 10 frames
-//		{   
-//			puck.last_position = Point2d(-1, -1);
-//			last_position_estimate = Point2d(-1, -1);
-//		} else {
-//			puck.last_position = puck.position;
-//			last_position_estimate = position_estimate;
-//		}
-//
-//		imshow("frame", table);
-//		//waitKey(0);
-//
-//	}
-//
-//}
 
 /*
  * Returns 1 if the puck is moving towards the robot, otherwise returns 0
@@ -492,7 +342,7 @@ pair<Point2d, double> puckTracker::predict(Mat& src, Point2d last, Point2d curre
 	pair<Point2d, double> prediction;
 
 	int bounce_count = 0; // number of bounces 
-	int bounce_max = 3; // maximum number of bounces calculated
+	int bounce_max = 4; // maximum number of bounces calculated
 	bool done = false;
 
 	/* equation of a line: y = mx + b
@@ -559,21 +409,27 @@ pair<Point2d, double> puckTracker::predict(Mat& src, Point2d last, Point2d curre
 			if(predict_x != 0) 
 			{
 				all_pred.push_back(Point2d(predict_x, predict_y));
-				if(all_pred.size() > 10) all_pred.erase(all_pred.begin());
-				for(int i = 0; i < all_pred.size(); i++) 
+				if(all_pred.size() > 14) all_pred.erase(all_pred.begin());
+				for(int i = 0; i < all_pred.size(); i++) // draw all predictions
 				{
-					circle(src, all_pred[i], 12, Scalar(255, 255, 255), -1, 8);
+					circle(src, all_pred[i], 10, Scalar(255, 255, 255), -1, 8);
 				}
+				for(int i = 0; i < all_pos.size(); i++) // draw previous puck finds
+				{
+					circle(src, all_pos[i], 10, Scalar(180,0,180),1,8);
+				}
+				all_pos.push_back(current);
+
 			}
 
-			circle(src, Point2d(predict_x, predict_y), 12, Scalar(255, 255, 255), -1, 8);
-
+			circle(src, Point2d(predict_x, predict_y), 10, Scalar(255, 255, 255), -1, 8);
+			cout << "Prediction: " << Point2d(predict_x, predict_y);
 		}
 
 	} while ((bounce_count != bounce_max) && (done != true)); //predict until we've bounced 3 times or found the end. 
 	
 
-	if(done && predict_x != 0) // only construct prediction if its heading towards robot goal 
+	if(done /*&& predict_x != 0*/) // only construct prediction if its heading towards robot goal 
 	{
 		Prediction p;
 		// fill in prediction class to be sent to robot. 
